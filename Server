@@ -1,0 +1,915 @@
+#define WIN32_LEAN_AND_MEAN  
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#pragma warning(disable: 4996)
+#include <windows.h>  
+#include <winsock2.h>  
+#include <mswsock.h>  
+#include <stdio.h>  
+#include "aclapi.h"  
+#include "stdlib.h" 
+#include <string.h>
+#include <sddl.h>
+#include <locale.h>
+#include <wincrypt.h>
+#include <iostream>
+#include <string>
+
+using namespace std;
+
+#pragma comment(lib, "ws2_32.lib")  
+#pragma comment(lib, "mswsock.lib") 
+
+#define MAX_CLIENTS (100)
+#define SERVER_PORT 9000
+#define SEND_SIZE 2000
+#define RECV_SIZE 500
+#define BORDER 1000
+#define DISC_NUM 26
+
+enum request_type { key, file };
+
+void os_type();
+void curr_time();
+void os_time();
+void mem_info();
+void disk_types();
+void free_local_disk_place();
+void access_perm(int mode, char * path);
+void file_owner(int mode, char * path);
+
+char answer[SEND_SIZE] = { 0 };
+
+
+
+std::string to_str(const wchar_t* wcstr)
+{
+	if (wcstr == NULL || wcslen(wcstr) == 0)
+		return ""; // empty string
+
+	std::mbstate_t state{};
+
+	const wchar_t* p = wcstr;
+
+	size_t clen; errno_t err;
+	err = wcsrtombs_s(&clen, NULL, 0, &p, 0, &state);
+	// +1 is redundant, because
+	// std::string manages terminating null character
+
+	// cannot determine or convert to const char*
+	if (clen == 0 || clen == static_cast<size_t>(-1)
+		|| err == EINVAL || err == EILSEQ || err == ERANGE)
+	{
+		return ""; // empty string
+	}
+
+	std::string rlt(clen, '\0'); clen = 0;
+
+	err = wcsrtombs_s(&clen, &rlt[0], rlt.size(), &wcstr, rlt.size(), &state);
+
+	if (clen == 0 || clen == static_cast<size_t>(-1)
+		|| err == EINVAL || err == EILSEQ || err == ERANGE)
+	{
+		return ""; // return empty string
+	}
+	else
+	{
+		// we have to remove the last character
+		// because null character is added by wcsrtombs_s()
+		// also is added by std::string,
+		// so we have to remove one trailing null character
+		rlt.pop_back();
+		return rlt;
+	}
+}
+
+
+//COMMANDS
+void os_type()
+{
+	OSVERSIONINFOEX OS_version_info;
+	ZeroMemory(&OS_version_info, sizeof(OSVERSIONINFOEX));
+	OS_version_info.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+	GetVersionEx((LPOSVERSIONINFOW)&OS_version_info);
+
+	if ((OS_version_info.dwMajorVersion == 4) && (OS_version_info.dwMinorVersion == 0))
+	{
+		strcpy(answer, "OS: Windows 95 \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 4) && (OS_version_info.dwMinorVersion == 10))
+	{
+		strcpy(answer, "OS: Windows 98 \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 4) && (OS_version_info.dwMinorVersion == 90))
+	{
+		strcpy(answer, "OS: WindowsME \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 5) && (OS_version_info.dwMinorVersion == 0))
+	{
+		strcpy(answer, "OS: Windows 2000 \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 5) && (OS_version_info.dwMinorVersion == 1))
+	{
+		strcpy(answer, "OS: Windows XP \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 5) && (OS_version_info.dwMinorVersion == 2))
+	{
+		strcpy(answer, "OS: Windows 2003 \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 6) && (OS_version_info.dwMinorVersion == 0))
+	{
+		strcpy(answer, "OS: Windows Vista \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 6) && (OS_version_info.dwMinorVersion == 1))
+	{
+		strcpy(answer, "OS: Windows 7 \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 6) && (OS_version_info.dwMinorVersion == 2))
+	{
+		strcpy(answer, "OS: Windows 8 \n");
+		return;
+	}
+	else if ((OS_version_info.dwMajorVersion == 6) && (OS_version_info.dwMinorVersion == 3))
+	{
+		strcpy(answer, "OS: Windows 8.1 \n");
+		return;
+	}
+}
+
+void curr_time()
+{
+	SYSTEMTIME sm;
+	GetSystemTime(&sm);
+
+	char time_str[SEND_SIZE] = { 0 };
+
+	strcat(answer, "Day:\t");
+	itoa(sm.wDay, time_str, 10);
+	strcat(answer, time_str);
+	memset(time_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Month:\t");
+	itoa(sm.wMonth, time_str, 10);
+	strcat(answer, time_str);
+	memset(time_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Year:\t");
+	itoa(sm.wYear, time_str, 10);
+	strcat(answer, time_str);
+	memset(time_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Hour:\t");
+	itoa((sm.wHour + 3), time_str, 10);
+	strcat(answer, time_str);
+	memset(time_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Minute:\t");
+	itoa(sm.wMinute, time_str, 10);
+	strcat(answer, time_str);
+	memset(time_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Second:\t");
+	itoa(sm.wSecond, time_str, 10);
+	strcat(answer, time_str);
+	memset(time_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+}
+
+void os_time()
+{
+	int msec = GetTickCount();
+
+	int hour = msec / (1000 * 60 * 60);
+	int min = msec / (1000 * 60) - hour * 60;
+	int sec = (msec / 1000) - (hour * 60 * 60) - min * 60;
+
+	char time_str[SEND_SIZE] = { 0 };
+
+	strcat(answer, "Hours:\t");
+	itoa(hour, time_str, 10);
+	strcat(answer, time_str);
+	strcat(answer, "\n");
+
+	strcat(answer, "Minutes:\t");
+	itoa(min, time_str, 10);
+	strcat(answer, time_str);
+	strcat(answer, "\n");
+
+	strcat(answer, "Seconds:\t");
+	itoa(sec, time_str, 10);
+	strcat(answer, time_str);
+	strcat(answer, "\n");
+}
+
+void mem_info()
+{
+	/*stat.dwLength- длина структуры в байтах
+	stat.dwMemoryLoad- загрузка памяти в процентах
+	stat.dwTotalPhys- максимальное количество физической памяти в байтах
+	stat.dwAvailPhys- свободное количество физической памяти в байтах
+	stat.dwTotalPageFile- максимальное количество памяти для программ в байтах
+	stat.dwAvailPageFile- свободное количество памяти для программ в байтах
+	stat.dwTotalVirtual- максимальное количество виртуальной памяти в байтах
+	stat.dwAvailVirtual- свободное количество виртуальной памяти в байтах */
+
+	MEMORYSTATUS stat;
+	GlobalMemoryStatus(&stat);
+
+	char mem_str[SEND_SIZE] = { 0 };
+
+	strcat(answer, "Structure length in bytes:\t");
+	itoa(stat.dwLength, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Load memory in percentage:\t");
+	itoa(stat.dwMemoryLoad, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n\n");
+
+	strcat(answer, "Maximum of phys-memory in bytes:");
+	itoa(stat.dwTotalPhys, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Free phys-memory in bytes:");
+	itoa(stat.dwAvailPhys, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n\n");
+
+	strcat(answer, "Maximum of memory for programs in bytes:");
+	itoa(stat.dwTotalPageFile, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+
+	strcat(answer, "Free memory for programs in bytes:");
+	itoa(stat.dwAvailPageFile, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n\n");
+
+	strcat(answer, "Maximum of virtual memory in bytes:");
+	itoa(stat.dwTotalVirtual, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+
+	strcat(answer, "Free virtual memory in bytes:");
+	itoa(stat.dwAvailVirtual, mem_str, 10);
+	strcat(answer, mem_str);
+	memset(mem_str, BORDER, sizeof(char));
+	strcat(answer, "\n");
+}
+
+void disk_types()
+{
+	int count = 0;
+	WCHAR disks[DISC_NUM][3] = { 0 };
+	DWORD logical_drive = GetLogicalDrives();
+	const int start_point = 65;
+
+	for (int i = 0; i < DISC_NUM; i++)
+	{
+		int n = ((logical_drive >> i) & 0x00000001);
+		if (n == 1)
+		{
+			disks[count][0] = char(start_point + i);
+			disks[count][1] = ':';
+			count++;
+		}
+	}
+
+	char disk_str[SEND_SIZE] = { 0 };
+	for (int i = 0; i < (DISC_NUM - 2); i++)
+	{
+		WCHAR disk_type = 0;
+		int drive_type = GetDriveType(disks[i]);
+		if (drive_type > 1)
+		{
+			char temp_str[128] = { 0 };
+			wcstombs(temp_str, disks[i], 128);
+			strcat(disk_str, temp_str);
+			switch (drive_type)
+			{
+			case 2:
+				strcat(disk_str, " - REMOVABLE\n"); break;
+			case 3:
+				strcat(disk_str, " - FIXED\n"); break;
+			case 4:
+				strcat(disk_str, " - REMOTE(NETWORK)\n"); break;
+			case 5:
+				strcat(disk_str, " - CDROM\n"); break;
+			case 6:
+				strcat(disk_str, " - RAMDISK\n"); break;
+			};
+		}
+	}
+	strcpy(answer, disk_str);
+}
+
+void free_local_disk_place()
+{
+	int count = 0;
+	char disks[DISC_NUM][3] = { 0 };
+	DWORD logical_drive = GetLogicalDrives();
+	char disk_str[SEND_SIZE] = { 0 };
+	const int start_point = 65;
+	for (int i = 0; i < DISC_NUM; i++)
+	{
+		int n = ((logical_drive >> i) & 0x00000001);
+		if (n == 1)
+		{
+			disks[count][0] = char(start_point + i);
+			disks[count][1] = ':';
+			count++;
+		}
+	}
+
+	for (int i = 0; i < DISC_NUM; i++)
+	{
+		if (GetDriveTypeA(disks[i]) == DRIVE_FIXED)
+		{
+			DWORD sectors_per_cluster, bytes_per_sector, free_clusters, cluster_num;
+			GetDiskFreeSpaceA(disks[i], &sectors_per_cluster, &bytes_per_sector, &free_clusters, &cluster_num);
+			DWORD freeSpace = (double)free_clusters * (double)sectors_per_cluster * (double)bytes_per_sector / 1024.0 / 1024.0 / 1024.0;
+			/*Выводим информацию о свободном дисковом пространстве*/
+			strcat(answer, "Disk: ");
+			strcat(answer, disks[i]);
+			strcat(answer, " has free space in bytes: ");
+			itoa(freeSpace, disk_str, 10);
+			strcat(answer, disk_str);
+			strcat(answer, "\n");
+		}
+	}
+}
+
+void access_perm(int mode, char *path)
+{
+	PSECURITY_DESCRIPTOR pSD;
+	PACL pACL;
+
+	WCHAR w_path[128] = { 0 };
+
+	if (mode == 1)
+	{
+		HKEY hkey_handler;
+		char *root = 0, *ptr = 0;
+		root = strtok(path, "\\");
+
+		if (!strcmp(root, "HKEY_CLASSES_ROOT"))
+		{
+			ptr = path + strlen("HKEY_CLASSES_ROOT\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_CLASSES_ROOT, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_CURRENT_USER"))
+		{
+			ptr = path + strlen("HKEY_CURRENT_USER\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_CURRENT_USER, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_LOCAL_MACHINE"))
+		{
+			ptr = path + strlen("HKEY_LOCAL_MACHINE\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_LOCAL_MACHINE, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_USERS"))
+		{
+			ptr = path + strlen("HKEY_USERS\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_USERS, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_CURRENT_CONFIG"))
+		{
+			ptr = path + strlen("HKEY_CURRENT_CONFIG\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_CURRENT_CONFIG, w_path, &hkey_handler);
+		}
+		GetSecurityInfo(hkey_handler, SE_REGISTRY_KEY, DACL_SECURITY_INFORMATION, NULL, NULL, &pACL, NULL, &pSD);
+	}
+	else//file
+	{
+		mbstowcs(w_path, path, 128);
+		GetNamedSecurityInfo(w_path, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, &pACL, NULL, &pSD);
+	}
+
+	if (pACL == NULL)
+	{
+		strcat(answer, "ACL list is empty\n");
+		return;
+	}
+
+	ACL_SIZE_INFORMATION aclInfo;
+	GetAclInformation(pACL, &aclInfo, sizeof(aclInfo), AclSizeInformation);
+	char count[128] = { 0 }; // количество пользователей
+	itoa(aclInfo.AceCount, count, 10);
+
+	WCHAR w_user[128] = { 0 };
+	WCHAR w_domain[128] = { 0 };
+	memset(w_user, 128, sizeof(WCHAR));
+
+	int currentAccess[16]; // 0 - запрещен, 1 - разрешен
+	char rights[16][16];
+
+	DWORD i;
+	for (i = 0; i < aclInfo.AceCount; i++)
+	{
+		void * ace;
+		if (GetAce(pACL, i, &ace))
+		{
+			SID *SidStart = (SID *)&((ACCESS_ALLOWED_ACE *)ace)->SidStart;
+			SID_NAME_USE sidUse;
+			DWORD len = 100;
+			LookupAccountSid(NULL, SidStart, w_user, &len, w_domain, &len, &sidUse);
+
+			//char user[128] = { 0 };
+			//wcstombs(user, w_user, 128);
+			string user = to_str(w_user);
+			strcat(answer, "User: ");
+			strcat(answer, user.c_str());
+
+			strcat(answer, "\n");
+			strcat(answer, "Domain: ");
+			char domain[128] = { 0 };
+			wcstombs(domain, w_domain, 128);
+			strcat(answer, domain);
+
+			strcat(answer, "\n");
+			LPWSTR w_sid = NULL;
+			ConvertSidToStringSid(SidStart, &w_sid);
+			strcat(answer, "SID: ");
+			char sid[128] = { 0 };
+			wcstombs(sid, w_sid, 128);
+			strcat(answer, sid);
+			strcat(answer, "\n");
+			strcat(answer, "Access: ");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Header.AceType == ACCESS_ALLOWED_ACE_TYPE)
+			{
+				currentAccess[i] = 1; // разрешено
+				strcat(answer, "YES \n");
+			}
+			else
+			{
+				currentAccess[i] = 0; // запрещено
+				strcat(answer, "NO \n");
+			}
+
+			strcat(answer, "Rights: ");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Mask & 1)
+				strcat(answer, "GENERIC_READ \n");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Mask & 2)
+				strcat(answer, "GENERIC_WRITE \n");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Mask & 4)
+				strcat(answer, "GENERIC_EXECUTE \n");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Mask & SYNCHRONIZE)
+				strcat(answer, "SYNCHRONIZE \n");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Mask & WRITE_OWNER)
+				strcat(answer, "WRITE_OWNER \n");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Mask & WRITE_DAC)
+				strcat(answer, "WRITE_DAC \n");
+
+			if (((ACCESS_ALLOWED_ACE *)ace)->Mask & DELETE)
+				strcat(answer, "DELETE \n");
+			else
+				strcat(answer, "FAIL \n");
+		}
+	}
+}
+
+void file_owner(int mode, char * path)
+{
+	PSID pOwnerSid;
+	PSECURITY_DESCRIPTOR pSD = NULL;
+	WCHAR w_path[128] = { 0 };
+
+	if (mode == 1)
+	{
+		HKEY hkey_handler;
+		char *root = 0, *ptr = 0;
+		root = strtok(path, "\\");
+
+		if (!strcmp(root, "HKEY_CLASSES_ROOT"))
+		{
+			ptr = path + strlen("HKEY_CLASSES_ROOT\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_CLASSES_ROOT, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_CURRENT_USER"))
+		{
+			ptr = path + strlen("HKEY_CURRENT_USER\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_CURRENT_USER, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_LOCAL_MACHINE"))
+		{
+			ptr = path + strlen("HKEY_LOCAL_MACHINE\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_LOCAL_MACHINE, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_USERS"))
+		{
+			ptr = path + strlen("HKEY_USERS\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_USERS, w_path, &hkey_handler);
+		}
+		else if (!strcmp(root, "HKEY_CURRENT_CONFIG"))
+		{
+			ptr = path + strlen("HKEY_CURRENT_CONFIG\\");
+			mbstowcs(w_path, ptr, 128);
+			RegOpenKey(HKEY_CURRENT_CONFIG, w_path, &hkey_handler);
+		}
+		GetSecurityInfo(hkey_handler, SE_REGISTRY_KEY, OWNER_SECURITY_INFORMATION, &pOwnerSid, NULL, NULL, NULL, &pSD);
+	}
+	else//file
+	{
+		mbstowcs(w_path, path, 128);
+		GetNamedSecurityInfo(w_path, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, &pOwnerSid, NULL, NULL, NULL, &pSD);
+	}
+		
+
+	WCHAR w_user[128] = { 0 };
+	WCHAR domain[128] = { 0 };
+	DWORD uLen = sizeof(w_user);
+	DWORD dLen = sizeof(domain);
+	SID_NAME_USE SidName;
+	
+	LookupAccountSid(NULL, pOwnerSid, w_user, &uLen, domain, &dLen, &SidName);
+	LPWSTR w_sid = NULL;
+	ConvertSidToStringSid(pOwnerSid, &w_sid);
+
+	char sid[128] = { 0 };
+	wcstombs(sid, w_sid, 128);
+	strcat(answer, "SID: ");
+	strcat(answer, sid);
+	strcat(answer, "\n");
+
+	char user[128] = { 0 };
+	wcstombs(user, w_user, 128);
+	strcat(answer, "User: ");
+	strcat(answer, user);
+	strcat(answer, "\n");
+}
+//COMMANDS
+
+void handler(string str)
+{
+	if (str == "OS ") os_type(); 
+	else if (str == "T ") curr_time();
+	else if (str == "OT ") os_time();
+	else if (str == "M ") mem_info();
+	else if (str == "D ") disk_types();
+	else if (str == "F ") free_local_disk_place();
+	else strcat(answer, "Incorrect command\n");
+
+}
+
+void parse_request(string str)
+{
+	cout << endl << str << " STRISCHEEE" << endl;
+	if (str == "OS " || str == "T " || str == "OT " || str == "M " || str == "D " || str == "F ")
+		handler(str);
+	else
+	{
+		string s = str.substr(0, str.find(' ', 0));
+		if (s == "Ow")
+		{
+			str = str.substr(str.find(' ', 0) + 1, str.length() - str.find(' ', 0));
+			cout << str << "+" << endl;
+			string s = str.substr(0, str.find(' ', 0));
+			cout << s << "+" << endl;
+			string path = str.substr(str.find(' ', 0) + 1, str.length() - str.find(' ', 0));
+			cout << path << "+" << endl;
+			if (s == "k") file_owner(1, (char*)path.c_str());
+			else if (s == "f") file_owner(0, (char*)path.c_str());
+		}
+		else if (s == "A")
+		{
+			str = str.substr(str.find(' ', 0) + 1, str.length() - str.find(' ', 0));
+			cout << str << "+" << endl;
+			string s = str.substr(0, str.find(' ', 0));
+			cout << s << "+" << endl;
+			string path = str.substr(str.find(' ', 0) + 1, str.length() - str.find(' ', 0));
+			cout << path << "+" << endl;
+			if (s=="k") access_perm(1, (char*)path.c_str());
+			else if (s=="f") access_perm(0, (char*)path.c_str());
+
+		}
+
+	}
+}
+
+
+//IO_INTERRACT
+struct client_ctx
+{
+	int socket;
+	CHAR buf_recv[2048];           // Буфер приема    
+	CHAR buf_send[10000];           // Буфер отправки    
+	unsigned int sz_recv;         // Принято данных  
+	unsigned int sz_send_total;   // Данных в буфере отправки   
+	unsigned int sz_send;         // Данных отправлено           
+								  // Структуры OVERLAPPED для уведомлений о завершении   
+	OVERLAPPED overlap_recv;
+	OVERLAPPED overlap_send;
+	OVERLAPPED overlap_cancel;
+
+	DWORD flags_recv; // Флаги для WSARecv  
+
+	HCRYPTPROV hProv;
+	HCRYPTKEY hKey;
+	HCRYPTKEY hPublicKey;
+	HCRYPTKEY hPrivateKey;
+	DWORD count;
+	char SessionKey[256];
+	BYTE data[2048];
+	HCRYPTKEY hSessionKey;
+	int handshake_flag;
+};
+
+// Прослушивающий сокет и все сокеты подключения хранятся  
+// в массиве структур (вместе с overlapped и буферами)  
+struct client_ctx g_ctxs[1 + MAX_CLIENTS];
+int g_accepted_socket;
+HANDLE g_io_port;
+
+// Функция стартует операцию чтения из сокета  
+void schedule_read(DWORD idx)
+{
+	WSABUF buf;
+	buf.buf = g_ctxs[idx].buf_recv + g_ctxs[idx].sz_recv;
+	buf.len = sizeof(g_ctxs[idx].buf_recv) - g_ctxs[idx].sz_recv;
+	memset(&g_ctxs[idx].overlap_recv, 0, sizeof(OVERLAPPED));
+	g_ctxs[idx].flags_recv = 0;
+	WSARecv(g_ctxs[idx].socket, &buf, 1, NULL, &g_ctxs[idx].flags_recv, &g_ctxs[idx].overlap_recv, NULL);
+
+}
+
+// Функция стартует операцию отправки подготовленных данных в сокет 
+void schedule_write(DWORD idx)
+{
+	WSABUF buf; buf.buf = g_ctxs[idx].buf_send + g_ctxs[idx].sz_send;
+	buf.len = g_ctxs[idx].sz_send_total - g_ctxs[idx].sz_send;
+	memset(&g_ctxs[idx].overlap_send, 0, sizeof(OVERLAPPED));
+	WSASend(g_ctxs[idx].socket, &buf, 1, NULL, 0, &g_ctxs[idx].overlap_send, NULL);
+}
+
+void handshake(ULONG_PTR key)
+{
+	CryptAcquireContext(&g_ctxs[key].hProv, NULL, MS_ENHANCED_PROV, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT);
+
+	CryptGenKey(g_ctxs[key].hProv, CALG_RC4, CRYPT_EXPORTABLE/* | CRYPT_ENCRYPT | CRYPT_DECRYPT*/, &g_ctxs[key].hSessionKey);
+
+	CryptImportKey(g_ctxs[key].hProv, (BYTE *)g_ctxs[key].buf_recv, g_ctxs[key].sz_recv, 0, 0, &g_ctxs[key].hPublicKey);
+
+	CryptExportKey(g_ctxs[key].hSessionKey, g_ctxs[key].hPublicKey, SIMPLEBLOB, 0, NULL, &g_ctxs[key].count);
+
+	CryptExportKey(g_ctxs[key].hSessionKey, g_ctxs[key].hPublicKey, SIMPLEBLOB, 0, g_ctxs[key].data, &g_ctxs[key].count);
+
+	memcpy(&g_ctxs[key].buf_send, g_ctxs[key].data, sizeof(g_ctxs[key].data));
+	g_ctxs[key].sz_send_total = g_ctxs[key].count;
+	g_ctxs[key].sz_send = 0;
+	schedule_write(key);
+}
+
+// Функция добавляет новое принятое подключение клиента  
+void add_accepted_connection()
+{
+	DWORD i;
+	// Поиск места в массиве g_ctxs для вставки нового подключения   
+	for (i = 0; i < sizeof(g_ctxs) / sizeof(g_ctxs[0]); i++)
+	{
+		if (g_ctxs[i].socket == 0)
+		{
+			unsigned int ip = 0;
+			struct sockaddr_in* local_addr = 0, *remote_addr = 0;
+			int local_addr_sz, remote_addr_sz;
+			GetAcceptExSockaddrs(g_ctxs[0].buf_recv, g_ctxs[0].sz_recv, sizeof(struct sockaddr_in) + 16, sizeof(struct sockaddr_in) + 16, (struct sockaddr **) &local_addr, &local_addr_sz, (struct sockaddr **) &remote_addr, &remote_addr_sz);
+			if (remote_addr) ip = ntohl(remote_addr->sin_addr.s_addr);
+			printf("%d Connection created, remote IP: %u.%u.%u.%u\n", i, (ip >> 24) & 0xff, (ip >> 16) & 0xff, (ip >> 8) & 0xff, (ip) & 0xff);
+			g_ctxs[i].socket = g_accepted_socket;
+			// Связь сокета с портом IOCP, в качестве key используется индекс массива     
+			if (NULL == CreateIoCompletionPort((HANDLE)g_ctxs[i].socket, g_io_port, i, 0))
+			{
+				printf("CreateIoCompletionPort error: %x\n", GetLastError());
+				return;
+			}
+			// Ожидание данных от сокета     
+			schedule_read(i);
+			return;
+		}
+	}
+	// Место не найдено => нет ресурсов для принятия соединения   
+	closesocket(g_accepted_socket);
+	g_accepted_socket = 0;
+}
+// Функция стартует операцию приема соединения  
+
+void schedule_accept()
+{
+	// Создание сокета для принятия подключения (AcceptEx не создает сокетов)   
+	g_accepted_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+	memset(&g_ctxs[0].overlap_recv, 0, sizeof(OVERLAPPED));
+	// Принятие подключения.  
+	// Как только операция будет завершена - порт завершения пришлет уведомление. 
+	// Размеры буферов должны быть на 16 байт больше размера адреса согласно документации разработчика ОС   
+	AcceptEx(g_ctxs[0].socket, g_accepted_socket, g_ctxs[0].buf_recv, 0, sizeof(struct sockaddr_in) + 16, sizeof(struct sockaddr_in) + 16, NULL, &g_ctxs[0].overlap_recv);
+}
+
+int is_string_received(DWORD idx, int* len)
+{
+
+	DWORD i;
+
+	if (g_ctxs[idx].sz_recv == 500)
+	{
+		*len = 500;
+		return 1;
+	}
+	return 0;
+}
+void io_serv()
+{
+	WSADATA wsa_data;
+
+	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) == 0)
+	{
+		printf("WSAStartup ok\n");
+	}
+	else
+	{
+		printf("WSAStartup error\n");
+	}
+	struct sockaddr_in addr;
+	// Создание сокета прослушивания   
+	SOCKET s = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+	// Создание порта завершения   
+	g_io_port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+	if (NULL == g_io_port)
+	{
+		printf("CreateIoCompletionPort error: %x\n", GetLastError());
+		return;
+	}
+	// Обнуление структуры данных для хранения входящих соединений   
+	memset(g_ctxs, 0, sizeof(g_ctxs));
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(SERVER_PORT);
+	if (bind(s, (struct sockaddr*) &addr, sizeof(addr)) < 0 || listen(s, 1) < 0)
+	{
+		printf("error bind() or listen()\n");
+		return;
+	}
+	printf("Listening: %hu\n", ntohs(addr.sin_port));
+	// Присоединение существующего сокета s к порту io_port.   
+	// В качестве ключа для прослушивающего сокета используется 0   
+	if (NULL == CreateIoCompletionPort((HANDLE)s, g_io_port, 0, 0))
+	{
+		printf("CreateIoCompletionPort error: %x\n", GetLastError());
+		return;
+	}
+	g_ctxs[0].socket = s;
+	// Старт операции принятия подключения.  
+	schedule_accept();
+	// Бесконечный цикл принятия событий о завершенных операциях  
+	while (1)
+	{
+		DWORD transferred;
+		ULONG_PTR key;
+		OVERLAPPED* lp_overlap;
+		// Ожидание событий в течение 1 секунды    
+		BOOL b = GetQueuedCompletionStatus(g_io_port, &transferred, &key, &lp_overlap, 1000);
+		if (b)
+		{
+			// Поступило уведомление о завершении операции     
+			if (key == 0) // ключ 0 - для прослушивающего сокета    
+			{
+				g_ctxs[0].sz_recv += transferred;
+				// Принятие подключения и начало принятия следующего     
+				add_accepted_connection();
+				schedule_accept();
+			}
+			else
+			{
+				// Иначе поступило событие по завершению операции от клиента. 
+				// Ключ key - индекс в массиве g_ctxs    
+				if (&g_ctxs[key].overlap_recv == lp_overlap)
+				{
+					int len = 0;
+					// Данные приняты
+					if (transferred == 0)
+					{
+						// Соединение разорвано        
+						CancelIo((HANDLE)g_ctxs[key].socket);
+						PostQueuedCompletionStatus(g_io_port, 0, key, &g_ctxs[key].overlap_cancel);
+						continue;
+					}
+					g_ctxs[key].sz_recv += transferred;
+					if (g_ctxs[key].handshake_flag == 0)
+					{
+						handshake(key);
+						g_ctxs[key].sz_recv = 0;
+						//g_ctxs[key].handshake_flag = 1;
+					}
+					else if (is_string_received(key, &len))
+					{
+						memset(answer, 0, SEND_SIZE);
+						CryptDecrypt(g_ctxs[key].hSessionKey, 0, true, 0, (BYTE *)g_ctxs[key].buf_recv, (DWORD *)&len);
+						parse_request(g_ctxs[key].buf_recv);
+						g_ctxs[key].sz_recv = 0;
+
+						printf("%s \n", answer);
+
+						int len1 = strlen(answer) + 1;
+						CryptEncrypt(g_ctxs[key].hSessionKey, 0, true, 0, (BYTE *)answer, (DWORD *)&len1, (DWORD)len1);
+
+						memcpy(g_ctxs[key].buf_send, answer, SEND_SIZE);
+
+						g_ctxs[key].sz_send_total = SEND_SIZE;
+						g_ctxs[key].sz_send = 0;
+						schedule_write(key);
+
+					}
+					else
+					{
+						// Иначе - ждем данные дальше        
+						schedule_read(key);
+					}
+				}
+				else if (&g_ctxs[key].overlap_send == lp_overlap)
+				{
+					// Данные отправлены       
+					g_ctxs[key].sz_send += transferred;
+					if (g_ctxs[key].sz_send < g_ctxs[key].sz_send_total && transferred > 0)
+					{
+						// Если данные отправлены не полностью - продолжить отправлять        
+						schedule_write(key);
+					}
+					else
+					{
+						if (g_ctxs[key].handshake_flag == 1)
+						{
+							// Данные отправлены полностью, прервать все коммуникации, 
+							// добавить в порт событие на завершение работы 
+							CancelIo((HANDLE)g_ctxs[key].socket);
+							PostQueuedCompletionStatus(g_io_port, 0, key, &g_ctxs[key].overlap_cancel);
+
+						}
+						else
+						{
+							g_ctxs[key].handshake_flag = 1;
+							schedule_read(key);
+						}
+					}
+				}
+				else if (&g_ctxs[key].overlap_cancel == lp_overlap)
+				{
+					// Все коммуникации завершены, сокет может быть закрыт       
+					closesocket(g_ctxs[key].socket);
+					memset(&g_ctxs[key], 0, sizeof(g_ctxs[key]));
+					printf("%d Connection closed\n", key);
+				}
+			}
+		}
+		else
+		{
+			// Ни одной операции не было завершено в течение заданного времени, программа может     
+			// выполнить какие-либо другие действия    
+			// ...    
+		}
+	}
+}
+int main()
+{
+	setlocale(LC_ALL, "rus");
+	SetConsoleOutputCP(1251);
+	SetConsoleCP(1251);
+	io_serv();
+	return 0;
+}
